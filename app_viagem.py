@@ -542,7 +542,8 @@ with tab1:
             inesp_row[c_dia] = "-"
             capital_row[c_dia] = "-"
             
-        tabela_itens = [cafe_row, almoco_row, janta_row, pernoite_row, combust_row, pedagio_row, inesp_row, capital_row]
+        todas_linhas = [cafe_row, almoco_row, janta_row, pernoite_row, combust_row, pedagio_row, inesp_row, capital_row]
+        tabela_itens = [r for r in todas_linhas if r.get("Total (R$)") not in ["R$ 0.00", "-"]]
         
         cargo_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Cargo']))
         setor_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Setor']))
