@@ -557,10 +557,10 @@ with tab1:
             if jantar: qtd_jantas += 1
             if (pernoite and hospedagem): qtd_pernoites += 1
             
-            cafe_row[str_dia] = f"R$ {v_cafe:.2f}" if cafe else "-"
-            almoco_row[str_dia] = f"R$ {v_almoco:.2f}" if almoco else "-"
-            janta_row[str_dia] = f"R$ {v_janta:.2f}" if jantar else "-"
-            pernoite_row[str_dia] = f"R$ {v_pernoite:.2f}" if (pernoite and hospedagem) else "-"
+            cafe_row[str_dia] = f"R$ {(v_cafe * qtd_pessoas):.2f}" if cafe else "-"
+            almoco_row[str_dia] = f"R$ {(v_almoco * qtd_pessoas):.2f}" if almoco else "-"
+            janta_row[str_dia] = f"R$ {(v_janta * qtd_pessoas):.2f}" if jantar else "-"
+            pernoite_row[str_dia] = f"R$ {(v_pernoite * qtd_pessoas):.2f}" if (pernoite and hospedagem) else "-"
 
         v_total_cafes = (qtd_cafes * v_cafe) * qtd_pessoas
         v_total_almocos = (qtd_almocos * v_almoco) * qtd_pessoas
