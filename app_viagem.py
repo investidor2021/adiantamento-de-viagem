@@ -43,16 +43,28 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     ano_atual = date.today().year
     pdf.cell(0, 6, cl(f"   --- / {ano_atual}" if not dados.get('Numero_Adiantamento') else f"   Nº {dados['Numero_Adiantamento']} / {ano_atual}"), 0, 1)
     
+    import textwrap
+    def write_wrapped(txt, width=95):
+        for line in textwrap.wrap(txt, width=width, break_long_words=True):
+            pdf.cell(0, 6, cl(line), 0, 1)
+
+    def separator():
+        pdf.ln(2)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(2)
+
     pdf.cell(0, 6, cl(f"Solicitante: {dados['Solicitante']}"), 0, 1)
     pdf.cell(0, 6, cl(f"Cargo: {dados.get('Cargo_Solicitante', '-')}"), 0, 1)
     pdf.cell(0, 6, cl(f"Departamento: {dados.get('Setor_Solicitante', '-')}"), 0, 1)
     pdf.cell(0, 6, cl(f"Setor: {dados.get('Setor_Solicitante', '-')}"), 0, 1)
     
-    pdf.ln(2)
+    separator()
+    
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 6, f"VALOR: R$ {dados['Valor_Final']:.2f}", 0, 1)
     pdf.set_font('Arial', '', 10)
-    pdf.ln(2)
+    
+    separator()
     
     import textwrap
     def write_wrapped(txt, width=95):
@@ -64,6 +76,8 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     write_wrapped(f"Finalidade: {dados['Finalidade']}")
     write_wrapped(f"Data/Periodo: {dados['Data_Saida']} a {dados['Data_Retorno']}")
     
+    separator()
+    
     v_parts = dados['Veiculo'].split(" - ", 1)
     if len(v_parts) == 2:
         placa, nome_veic = v_parts[0], v_parts[1]
@@ -74,15 +88,18 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     pdf.cell(0, 6, cl(f"PLACA: {nome_veic}"), 0, 1)
     write_wrapped(f"Horario de Saida: {dados['Hora_Saida']}    Horario de Chegada: {dados['Hora_Retorno']}")
     
+    separator()
+    
     write_wrapped('Quantidade de Pessoas, Nomes e Cargos: ' + str_pass)
-    pdf.ln(4)
+    
+    separator()
     
     meses_pt = {1: 'janeiro', 2: 'fevereiro', 3: 'marco', 4: 'abril', 5: 'maio', 6: 'junho', 7: 'julho', 8: 'agosto', 9: 'setembro', 10: 'outubro', 11: 'novembro', 12: 'dezembro'}
     hoje = date.today()
     data_extenso = f"Vargem Grande do Sul, {hoje.day} de {meses_pt[hoje.month]} de {hoje.year}"
     pdf.cell(0, 6, data_extenso, 0, 1)
     
-    pdf.ln(25) # Espaço aumentado
+    pdf.ln(15) 
     
     pdf.cell(90, 6, "________________________________________", 0, 0, 'C')
     pdf.cell(90, 6, "________________________________________", 0, 1, 'C')
@@ -90,9 +107,13 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     pdf.cell(90, 5, "Solicitante", 0, 1, 'C')
     pdf.ln(10)
     pdf.cell(90, 6, "________________________________________", 0, 0, 'C')
-    pdf.cell(90, 6, "________________________________________", 0, 1, 'C')
+    pdf.cell(90, 6, "Conclusao do Controle Interno:", 0, 1, 'L')
     pdf.cell(90, 5, cl("Departamento de Financas"), 0, 0, 'C')
-    pdf.cell(90, 5, "Conclusao do Controle Interno:", 0, 1, 'C')
+    pdf.cell(90, 6, "________________________________________", 0, 1, 'L')
+    pdf.cell(90, 5, "", 0, 0, 'C')
+    pdf.cell(90, 6, "________________________________________", 0, 1, 'L')
+    pdf.cell(90, 5, "", 0, 0, 'C')
+    pdf.cell(90, 6, "________________________________________", 0, 1, 'L')
 
     # ---- PAGE 2 ----
     num_dias = max(1, len(colunas_dias))
@@ -105,12 +126,17 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     pdf.cell(0, 6, "PREFEITURA MUNICIPAL DE VARGEM GRANDE DO SUL", 0, 1, 'C')
     pdf.set_font('Arial', '', 10)
     pdf.cell(0, 6, "CNPJ: 46.248.837/0001-55", 0, 1, 'C')
+    if dados.get('Numero_Adiantamento'):
+        pdf.cell(0, 6, f"Adiantamento Nº {dados['Numero_Adiantamento']} / {date.today().year}", 0, 1, 'C')
     pdf.ln(4)
     
     pdf.cell(0, 6, cl(f"Responsavel: {dados['Solicitante']}"), 0, 1)
     pdf.cell(0, 6, cl(f"Destino: {dados['Destino']}"), 0, 1)
     pdf.cell(0, 6, f"Data da Viagem: {dados['Data_Saida']} a {dados['Data_Retorno']}", 0, 1)
-    pdf.ln(2)
+    
+    pdf.ln(3)
+    pdf.line(10, pdf.get_y(), 10 + printable_width, pdf.get_y())
+    pdf.ln(3)
     
     pdf.cell(0, 6, cl("Segue, os valores referentes a alimentacao:"), 0, 1)
     
