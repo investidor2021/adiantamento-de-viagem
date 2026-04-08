@@ -162,7 +162,7 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     return base64.b64encode(res).decode('ascii')
 
 
-def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias):
+def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, is_nova=False):
     th_dias = "".join([f'<th style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #333;">{d}</th>' for d in colunas_dias])
     html_table = f"""
 <table style="width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 13px;">
@@ -233,12 +233,27 @@ def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens,
 """
     html_final = html_final.replace('\n', '')
     st.markdown(html_final, unsafe_allow_html=True)
-    st.info("Sua Ficha Oficial de Impressão foi gerada. Clique no botão gigante abaixo para salvá-la em PDF idêntica à da prefeitura!")
     
     try:
         b64_pdf = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias)
         href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="Adiantamento_Ordem.pdf" target="_blank"><button style="width:100%; padding:15px; font-size:18px; font-weight:bold; cursor:pointer; background-color:#2e86c1; color:white; border:none; border-radius:5px;">📥 BAIXAR RECIBO PDF OFICIAL</button></a>'
-        st.markdown(href, unsafe_allow_html=True)
+        
+        if is_nova:
+            if not st.session_state.get('pedido_salvo', False):
+                st.warning("⚠️ Atenção: Este cálculo ainda é provisório e **NÃO** foi salvo no banco de dados.")
+                if st.button("💾 CONFIRMAR RESULTADO E SALVAR NO BANCO", type="primary", use_container_width=True):
+                    with st.spinner("Gravando no Banco de Dados..."):
+                        sucesso = save_pedido(dados_pedido, tabela_itens, colunas_dias)
+                    if sucesso:
+                        st.session_state['pedido_salvo'] = True
+                        st.rerun()
+            else:
+                st.success("✅ Pedido gravado com sucesso! Já pode emitir o PDF oficial.")
+                st.markdown(href, unsafe_allow_html=True)
+        else:
+            st.info("Sua Ficha Oficial reconstituída foi gerada abaixo:")
+            st.markdown(href, unsafe_allow_html=True)
+            
     except Exception as e:
         st.error(f"Erro ao computar PDF nativo: {e}")
 
@@ -449,7 +464,7 @@ with tab1:
         inesperada = st.checkbox("🚩 Despesa Inesperada (Soma Automática de 3x Almoço do respectivo porte)")
         
         st.divider()
-        submetido = st.form_submit_button("Gerar Cálculo e Salvar Pedido", type="primary", use_container_width=True)
+        submetido = st.form_submit_button("🧮 Apenas Testar / Calcular Diárias", type="primary", use_container_width=True)
 
     if submetido:
         row_mun = df_cid[df_cid['Municipio_UF'] == destino].iloc[0]
@@ -583,13 +598,18 @@ with tab1:
             'Valor_Final': valor_final
         }
         
-        with st.spinner("Gravando no Google Sheets (Aba Banco de Dados)..."):
-            sucesso = save_pedido(dados_pedido, tabela_itens, colunas_dias)
-                
-        if sucesso:
-            st.success("✅ Pedido gravado com sucesso!")
-            st.markdown("---")
-            renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias)
+        st.session_state['pedido_atual'] = {
+            'dados_pedido': dados_pedido,
+            'str_passageiros_cargos': str_passageiros_cargos,
+            'tabela_itens': tabela_itens,
+            'colunas_dias': colunas_dias
+        }
+        st.session_state['pedido_salvo'] = False
+        
+    if 'pedido_atual' in st.session_state:
+        st.markdown("---")
+        p = st.session_state['pedido_atual']
+        renderizar_recibo_visual(p['dados_pedido'], p['str_passageiros_cargos'], p['tabela_itens'], p['colunas_dias'], is_nova=True)
 
 with tab2:
     st.subheader("🖨️ Histórico do Banco de Dados")
