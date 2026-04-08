@@ -163,7 +163,10 @@ def init_gspread():
     try:
         # Se estiver rodando no Streamlit Cloud, pega as credenciais dos Secrets
         if "gcp_service_account" in st.secrets:
-            gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
+            cred_dict = dict(st.secrets["gcp_service_account"])
+            # Corrige a formatação da chave privada caso o Streamlit escape as quebras de linha
+            cred_dict["private_key"] = cred_dict["private_key"].replace('\\n', '\n')
+            gc = gspread.service_account_from_dict(cred_dict)
         else:
             # Se for rodar localmente, usa o arquivo json
             gc = gspread.service_account(filename=CRED_FILE)
