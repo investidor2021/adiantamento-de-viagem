@@ -39,7 +39,12 @@ def cl(t): return str(t).encode('latin-1', 'replace').decode('latin-1')
 @st.cache_resource
 def init_gspread():
     try:
-        if "gcp_service_account" in st.secrets:
+        try:
+            has_secrets = "gcp_service_account" in st.secrets
+        except FileNotFoundError:
+            has_secrets = False
+            
+        if has_secrets:
             cred_dict = dict(st.secrets["gcp_service_account"])
             cred_dict["private_key"] = cred_dict["private_key"].replace('\\n', '\n')
             gc = gspread.service_account_from_dict(cred_dict)
