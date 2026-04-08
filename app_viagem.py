@@ -101,19 +101,29 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     
     pdf.ln(15) 
     
+    # Linha 1 de assinaturas
     pdf.cell(90, 6, "________________________________________", 0, 0, 'C')
     pdf.cell(90, 6, "________________________________________", 0, 1, 'C')
     pdf.cell(90, 5, "Atendente", 0, 0, 'C')
     pdf.cell(90, 5, "Solicitante", 0, 1, 'C')
-    pdf.ln(10)
-    pdf.cell(90, 6, "________________________________________", 0, 0, 'C')
-    pdf.cell(90, 6, "Conclusao do Controle Interno:", 0, 1, 'L')
-    pdf.cell(90, 5, cl("Departamento de Financas"), 0, 0, 'C')
-    pdf.cell(90, 6, "________________________________________", 0, 1, 'L')
-    pdf.cell(90, 5, "", 0, 0, 'C')
-    pdf.cell(90, 6, "________________________________________", 0, 1, 'L')
-    pdf.cell(90, 5, "", 0, 0, 'C')
-    pdf.cell(90, 6, "________________________________________", 0, 1, 'L')
+    
+    pdf.ln(12)
+    # Linha 2 de assinaturas
+    pdf.cell(190, 6, "________________________________________", 0, 1, 'C')
+    pdf.cell(190, 5, cl("Departamento de Financas"), 0, 1, 'C')
+    
+    pdf.ln(12)
+    # Área de Conclusão (Ocupando a largura total)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(190, 6, cl("Conclusao do Controle Interno:"), 0, 1, 'L')
+    pdf.set_font('Arial', '', 10)
+    
+    # Linhas pautadas para preenchimento
+    linha_cheia = "_" * 92
+    pdf.cell(190, 8, linha_cheia, 0, 1, 'L')
+    pdf.cell(190, 8, linha_cheia, 0, 1, 'L')
+    pdf.cell(190, 8, linha_cheia, 0, 1, 'L')
+
 
     # ---- PAGE 2 ----
     num_dias = max(1, len(colunas_dias))
