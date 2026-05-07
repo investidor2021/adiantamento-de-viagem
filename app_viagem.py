@@ -6,10 +6,46 @@ import os
 import base64
 import json
 import unicodedata
-from datetime import datetime, date, timedelta, time
+import urllib.request
+import urllib.parse
+import time
+from datetime import datetime, date, timedelta, time as dtime
 from fpdf import FPDF
 
 # --- UTILS ---
+@st.cache_data(ttl=86400)
+def obter_distancia_osrm(cidade_destino, uf_destino):
+    origem_q = "Vargem Grande do Sul, São Paulo, Brazil"
+    destino_q = f"{cidade_destino}, {uf_destino}, Brazil"
+    
+    def get_coords(query):
+        url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + urllib.parse.quote(query)
+        req = urllib.request.Request(url, headers={'User-Agent': 'AdiantamentoViagemApp/1.0 (contabilidade@vgsul.sp.gov.br)'})
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+                if data:
+                    return data[0]['lon'], data[0]['lat']
+        except:
+            pass
+        return None, None
+
+    lon1, lat1 = get_coords(origem_q)
+    time.sleep(1)
+    lon2, lat2 = get_coords(destino_q)
+    
+    if lon1 and lon2:
+        url = f'http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false'
+        req = urllib.request.Request(url, headers={'User-Agent': 'AdiantamentoViagemApp/1.0'})
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+                if data['code'] == 'Ok':
+                    return (data['routes'][0]['distance'] / 1000) * 2 # Ida e Volta
+        except:
+            pass
+    return 0.0
+
 def remove_accents(input_str):
     if not isinstance(input_str, str): return input_str
     nfkd_form = unicodedata.normalize('NFKD', input_str)
@@ -472,40 +508,55 @@ with st.sidebar.expander("🚙 Cadastrar Veículo", expanded=False):
 tab1, tab2 = st.tabs(["NOVO ADIANTAMENTO", "🖨️ REIMPRIMIR ANTIGOS"])
 
 with tab1:
-    with st.form("form_viagem"):
-        st.subheader("📍 Detalhes da Rota")
-        col1, col2, col3 = st.columns([2, 2, 1])
-        destino = col1.selectbox("Município de Destino", df_cid['Municipio_UF'].tolist())
-        finalidade = col2.text_input("Finalidade da Viagem")
-        numero_adiantamento = col3.text_input("Nº Adiantamento (Opcional)")
+    st.subheader("📍 Detalhes da Rota")
+    col1, col2, col3 = st.columns([2, 2, 1])
+    destino = col1.selectbox("Município de Destino", df_cid['Municipio_UF'].tolist())
+    finalidade = col2.text_input("Finalidade da Viagem")
+    numero_adiantamento = col3.text_input("Nº Adiantamento (Opcional)")
+    
+    st.subheader("🕒 Cronograma")
+    c1, c2, c3, c4 = st.columns(4)
+    d_saida = c1.date_input("Data de Saída", format="DD/MM/YYYY")
+    h_saida = c2.time_input("Horário de Saída", value=None)
+    d_retorno = c3.date_input("Data de Retorno", format="DD/MM/YYYY")
+    h_retorno = c4.time_input("Horário de Retorno", value=None)
         
-        st.subheader("🕒 Cronograma")
-        c1, c2, c3, c4 = st.columns(4)
-        d_saida = c1.date_input("Data de Saída", format="DD/MM/YYYY")
-        h_saida = c2.time_input("Horário de Saída", value=None)
-        d_retorno = c3.date_input("Data de Retorno", format="DD/MM/YYYY")
-        h_retorno = c4.time_input("Horário de Retorno", value=None)
+    st.subheader("👥 Equipe e Logística")
+    lista_pessoas = sorted(df_mot['Nome_Motorista'].tolist())
+    c5, c7 = st.columns(2)
+    solicitante = c5.selectbox("Solicitante/Motorista principal", lista_pessoas)
+    veiculo = c7.selectbox("Veículo", df_veic['Label'].tolist())
+    
+    passageiros = st.multiselect("Nomes dos demais passageiros (Opcional)", lista_pessoas)
+    qtd_pessoas = 1 + len(passageiros)
+    st.caption(f"**Total de Pessoas a Viajar:** {qtd_pessoas}")
         
-        st.subheader("👥 Equipe e Logística")
-        lista_pessoas = sorted(df_mot['Nome_Motorista'].tolist())
-        c5, c7 = st.columns(2)
-        solicitante = c5.selectbox("Solicitante/Motorista principal", lista_pessoas)
-        veiculo = c7.selectbox("Veículo", df_veic['Label'].tolist())
-        
-        passageiros = st.multiselect("Nomes dos demais passageiros (Opcional)", lista_pessoas)
-        qtd_pessoas = 1 + len(passageiros)
-        st.caption(f"**Total de Pessoas a Viajar:** {qtd_pessoas}")
-        
-        st.subheader("💰 Despesas Adicionais Estimadas")
+    st.subheader("💰 Despesas Adicionais Estimadas")
+    carro_proprio = st.checkbox("🚗 Utilizar Carro Próprio? (Reembolso de Km rodado)")
+    
+    if carro_proprio:
+        st.info("💡 A quilometragem será calculada automaticamente via satélite (Ida e Volta).")
         cx1, cx2, cx3 = st.columns(3)
+        placa_proprio = cx1.text_input("Placa e Modelo (Carro Próprio)")
+        pedagio = cx2.number_input("Pedágio Estimado (R$)", min_value=0.0, step=10.0)
+        estacionamento = cx3.number_input("Estacionamento (R$)", min_value=0.0, step=10.0)
+        
+        km_manual = st.number_input("Quilometragem Manual (Opcional - só preencha para forçar uma km, senão deixe 0)", min_value=0.0, step=1.0)
+        combustivel = 0.0
+    else:
+        cx1, cx2 = st.columns(2)
         combustivel = cx1.number_input("Adiant. Combustível (R$)", min_value=0.0, step=50.0)
         pedagio = cx2.number_input("Pedágio / Táxi / Ônibus (R$)", min_value=0.0, step=10.0)
-        hospedagem = cx3.checkbox("🏨 Cobrir Hospedagem Extra além da Diária?")
+        estacionamento = 0.0
+        placa_proprio = ""
+        km_manual = 0.0
         
-        inesperada = st.checkbox("🚩 Despesa Inesperada (Soma Automática de 3x Almoço do respectivo porte)")
-        
-        st.divider()
-        submetido = st.form_submit_button("🧮 Calcular Diárias", type="primary", use_container_width=True)
+    cxe1, cxe2 = st.columns(2)
+    hospedagem = cxe1.checkbox("🏨 Cobrir Hospedagem Extra além da Diária?")
+    inesperada = cxe2.checkbox("🚩 Despesa Inesperada (3x Almoço do respectivo porte)")
+    
+    st.divider()
+    submetido = st.button("🧮 Calcular Diárias", type="primary", use_container_width=True)
 
     if submetido:
         row_mun = df_cid[df_cid['Municipio_UF'] == destino].iloc[0]
@@ -528,8 +579,8 @@ with tab1:
             st.warning("⚠️ Preencha os Horários de Saída e Retorno para calcular as frações de refeição!")
             st.stop()
             
-        time_limit_saida = time(7, 0)
-        time_limit_retorno = time(19, 0)
+        time_limit_saida = dtime(7, 0)
+        time_limit_retorno = dtime(19, 0)
         
         v_cafe = tabela_fixa[porte]['cafe']
         v_almoco = tabela_fixa[porte]['almoco']
@@ -572,9 +623,23 @@ with tab1:
         v_total_jantas = (qtd_jantas * v_janta) * qtd_pessoas
         v_total_pernoites = (qtd_pernoites * v_pernoite) * qtd_pessoas
         
+        km_rodado = 0.0
+        if carro_proprio:
+            if km_manual > 0:
+                km_rodado = km_manual
+            else:
+                with st.spinner("🌍 Calculando rota via satélite..."):
+                    km_bruto = obter_distancia_osrm(row_mun['Municipio'], row_mun['UF'])
+                    if km_bruto == 0.0:
+                        st.error("Falha ao calcular a rota online. Por favor, insira a Quilometragem Manual.")
+                        st.stop()
+                    else:
+                        km_rodado = round(km_bruto * 1.20)
+                        
+        valor_carro = km_rodado * 0.80
         total_diarias_equipe = v_total_cafes + v_total_almocos + v_total_jantas + v_total_pernoites
         valor_inesperado = (v_almoco_base * 3.0) if inesperada else 0.0
-        valor_final = total_diarias_equipe + combustivel + pedagio + valor_inesperado
+        valor_final = total_diarias_equipe + combustivel + pedagio + estacionamento + valor_carro + valor_inesperado
         total_diarias_pessoa = (total_diarias_equipe / qtd_pessoas) if qtd_pessoas > 0 else 0.0
 
         cafe_row["Total (R$)"] = f"R$ {v_total_cafes:.2f}"
@@ -585,20 +650,23 @@ with tab1:
         cafe_row["Por Pessoa/dia"] = f"R$ {v_cafe:.2f}" if qtd_cafes > 0 else "-"
         almoco_row["Por Pessoa/dia"] = f"R$ {v_almoco:.2f}" if qtd_almocos > 0 else "-"
         janta_row["Por Pessoa/dia"] = f"R$ {v_janta:.2f}" if qtd_jantas > 0 else "-"
-        pernoite_row["Por Pessoa/dia"] = f"R$ {v_pernoite:.2f}" if qtd_pernoites > 0 else "-"
-        
         combust_row = {"Item": "COMBUSTÍVEL", "Total (R$)": f"R$ {combustivel:.2f}", "Por Pessoa/dia": "-"}
         pedagio_row = {"Item": "PEDÁGIO / TÁXI / ÔNIBUS", "Total (R$)": f"R$ {pedagio:.2f}", "Por Pessoa/dia": "-"}
+        estacionamento_row = {"Item": "ESTACIONAMENTO", "Total (R$)": f"R$ {estacionamento:.2f}", "Por Pessoa/dia": "-"}
+        carro_str = f"CARRO PRÓPRIO ({km_rodado} KM)" if carro_proprio else "CARRO PRÓPRIO (KM)"
+        carro_row = {"Item": carro_str, "Total (R$)": f"R$ {valor_carro:.2f}", "Por Pessoa/dia": "-"}
         inesp_row = {"Item": "DESPESA INESPERADA", "Total (R$)": f"R$ {valor_inesperado:.2f}", "Por Pessoa/dia": "-"}
         capital_row = {"Item": "CAPITAL", "Total (R$)": "-", "Por Pessoa/dia": "-"}
         
         for c_dia in colunas_dias:
             combust_row[c_dia] = "-"
             pedagio_row[c_dia] = "-"
+            estacionamento_row[c_dia] = "-"
+            carro_row[c_dia] = "-"
             inesp_row[c_dia] = "-"
             capital_row[c_dia] = "-"
             
-        todas_linhas = [cafe_row, almoco_row, janta_row, pernoite_row, combust_row, pedagio_row, inesp_row, capital_row]
+        todas_linhas = [cafe_row, almoco_row, janta_row, pernoite_row, combust_row, pedagio_row, estacionamento_row, carro_row, inesp_row, capital_row]
         tabela_itens = [r for r in todas_linhas if r.get("Total (R$)") not in ["R$ 0.00", "-"]]
         
         cargo_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Cargo']))
@@ -614,6 +682,8 @@ with tab1:
             
         str_passageiros_cargos = " , ".join(lista_detalhada_pessoas)
         
+        veiculo_final = placa_proprio.strip().upper() if (km_rodado > 0 and placa_proprio.strip() != "") else veiculo
+        
         dados_pedido = {
             'Numero_Adiantamento': numero_adiantamento,
             'Status': "APROVADO",
@@ -623,7 +693,7 @@ with tab1:
             'Nomes_Passageiros': str_passageiros_cargos,
             'Destino': destino,
             'Finalidade': finalidade,
-            'Veiculo': veiculo,
+            'Veiculo': veiculo_final,
             'Data_Saida': d_saida.strftime("%d/%m/%Y"),
             'Hora_Saida': h_saida.strftime("%H:%M"),
             'Data_Retorno': d_retorno.strftime("%d/%m/%Y"),
@@ -634,7 +704,7 @@ with tab1:
             'Qtd_Jantas': qtd_jantas * qtd_pessoas, 'V_Jantas': v_total_jantas,
             'Qtd_Pernoites': qtd_pernoites * qtd_pessoas, 'V_Pernoites': v_total_pernoites,
             'Valor_Diaria': total_diarias_pessoa,
-            'Extras': combustivel + pedagio,
+            'Extras': combustivel + pedagio + estacionamento + valor_carro,
             'Inesperadas': valor_inesperado,
             'Valor_Final': valor_final
         }
