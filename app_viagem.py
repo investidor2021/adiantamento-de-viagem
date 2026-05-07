@@ -605,8 +605,14 @@ with tab1:
             is_ultimo = (i == dias)
             
             cafe = True; almoco = True; jantar = True; pernoite = False if is_ultimo else True
-            if is_primeiro and h_saida >= time_limit_saida: cafe = False
-            if is_ultimo and h_retorno <= time_limit_retorno: jantar = False
+            
+            if is_primeiro:
+                if h_saida >= time_limit_saida: cafe = False
+                if h_saida > dtime(16, 0): almoco = False
+                if h_saida >= dtime(21, 0): jantar = False
+                
+            if is_ultimo:
+                if h_retorno <= time_limit_retorno: jantar = False
                 
             if cafe: qtd_cafes += 1
             if almoco: qtd_almocos += 1
