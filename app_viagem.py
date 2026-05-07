@@ -541,7 +541,7 @@ with tab1:
         pedagio = cx2.number_input("Pedágio Estimado (R$)", min_value=0.0, step=10.0)
         estacionamento = cx3.number_input("Estacionamento (R$)", min_value=0.0, step=10.0)
         
-        km_manual = st.number_input("Quilometragem Manual (Opcional - só preencha para forçar uma km, senão deixe 0)", min_value=0.0, step=1.0)
+        km_manual = st.number_input("Quilometragem Manual (Opcional - só preencha para forçar uma km, senão deixe 0)", min_value=0.0, step=10.0)
         combustivel = 0.0
     else:
         cx1, cx2 = st.columns(2)
@@ -634,7 +634,7 @@ with tab1:
                         st.error("Falha ao calcular a rota online. Por favor, insira a Quilometragem Manual.")
                         st.stop()
                     else:
-                        km_rodado = round(km_bruto * 1.20)
+                        km_rodado = int(round(km_bruto * 1.20, -1))
                         
         valor_carro = km_rodado * 0.80
         total_diarias_equipe = v_total_cafes + v_total_almocos + v_total_jantas + v_total_pernoites
