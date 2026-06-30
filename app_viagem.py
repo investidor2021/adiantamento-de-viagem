@@ -612,7 +612,7 @@ with tab1:
                 if h_saida >= dtime(21, 0): jantar = False
                 
             if is_ultimo:
-                if h_retorno >= dtime(7, 0): cafe = False
+                if h_retorno <= dtime(7, 0): cafe = False
                 if h_retorno <= dtime(12, 0): almoco = False
                 if h_retorno <= time_limit_retorno: jantar = False
                 
