@@ -190,48 +190,60 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     pdf.line(10, pdf.get_y(), 10 + printable_width, pdf.get_y())
     pdf.ln(3)
     
-    pdf.cell(0, 6, cl("Segue, os valores referentes a alimentacao:"), 0, 1)
-    
+    tab_mot = dados.get('Tabela_Motorista', [])
+    tab_pass = dados.get('Tabela_Passageiros', [])
+    if not tab_mot and not tab_pass:
+        tab_pass = tabela_itens
+
     font_s = 8
     if num_dias > 12: font_s = 7
     if num_dias > 20: font_s = 6
-    
-    pdf.set_fill_color(220, 220, 220)
-    pdf.set_font('Arial', 'B', font_s)
-    
+
     w_item = 40 if orient == 'P' else 50
     w_total = 26
     w_pessoa = 26
     w_rest = printable_width - (w_item + w_total + w_pessoa)
     w_dia = max(5.0, w_rest / num_dias)
-    
-    pdf.cell(w_item, 7, 'Item', 1, 0, 'C', 1)
-    for d in colunas_dias:
-        pdf.cell(w_dia, 7, cl(d), 1, 0, 'C', 1)
-    pdf.cell(w_total, 7, 'Total (R$)', 1, 0, 'C', 1)
-    pdf.cell(w_pessoa, 7, 'Por P./dia', 1, 1, 'C', 1)
-    
-    pdf.set_font('Arial', '', font_s)
-    for dt in tabela_itens:
-        item_str = dt['Item'].replace('ç','c').replace('õ','o').replace('é','e').replace('ã','a').replace('Í','I').replace('Á','A').replace('Ô','O')
-        pdf.cell(w_item, 7, cl(item_str), 1, 0, 'L')
+
+    def desenhar_tabela_pdf(lista_rows, titulo_secao):
+        if not lista_rows: return
+        pdf.set_font('Arial', 'B', 9)
+        pdf.cell(0, 6, cl(titulo_secao), 0, 1, 'L')
+        pdf.set_fill_color(220, 220, 220)
+        pdf.set_font('Arial', 'B', font_s)
         
+        pdf.cell(w_item, 7, 'Item', 1, 0, 'C', 1)
         for d in colunas_dias:
-            pdf.cell(w_dia, 7, cl(dt[d]), 1, 0, 'C')
-            
-        pdf.cell(w_total, 7, cl(dt['Total (R$)']), 1, 0, 'C')
-        pdf.cell(w_pessoa, 7, cl(dt['Por Pessoa/dia']), 1, 1, 'C')
-            
-    pdf.ln(6)
+            pdf.cell(w_dia, 7, cl(d), 1, 0, 'C', 1)
+        pdf.cell(w_total, 7, 'Total (R$)', 1, 0, 'C', 1)
+        pdf.cell(w_pessoa, 7, 'Por P./dia', 1, 1, 'C', 1)
+        
+        pdf.set_font('Arial', '', font_s)
+        for dt in lista_rows:
+            item_str = dt['Item'].replace('ç','c').replace('õ','o').replace('é','e').replace('ã','a').replace('Í','I').replace('Á','A').replace('Ô','O')
+            pdf.cell(w_item, 7, cl(item_str), 1, 0, 'L')
+            for d in colunas_dias:
+                pdf.cell(w_dia, 7, cl(dt[d]), 1, 0, 'C')
+            pdf.cell(w_total, 7, cl(dt['Total (R$)']), 1, 0, 'C')
+            pdf.cell(w_pessoa, 7, cl(dt['Por Pessoa/dia']), 1, 1, 'C')
+        pdf.ln(4)
+
+    if tab_mot:
+        desenhar_tabela_pdf(tab_mot, "PLANILHA 1: DIÁRIA - MOTORISTA DESIGNADO (LEI Nº 5.262/2026)")
+    if tab_pass:
+        tit = "PLANILHA 2: ALIMENTAÇÃO E DESPESAS - DEMAIS INTEGRANTES (LEI Nº 4.297/2018)" if tab_mot else "SEGUE, OS VALORES REFERENTES A ALIMENTAÇÃO:"
+        desenhar_tabela_pdf(tab_pass, tit)
+
+    pdf.ln(2)
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 8, f"TOTAL: R$ {dados['Valor_Final']:.2f}", 0, 1)
     pdf.cell(0, 4, "", 0, 1)
     pdf.set_font('Arial', '', 10)
     pdf.cell(0, 6, f"Numero de Pessoas: {dados['Qtd_Pessoas']}", 0, 1)
     
-    pdf.ln(15) # Espaço aumentado
+    pdf.ln(12)
     pdf.cell(190, 6, "Ciente em ____/____/____", 0, 1, 'C')
-    pdf.ln(15) # Espaço aumentado
+    pdf.ln(12)
     pdf.cell(190, 6, "______________________________________", 0, 1, 'C')
     pdf.cell(190, 6, cl(dados['Solicitante']), 0, 1, 'C')
     
@@ -241,30 +253,47 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
 
 
 def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, is_nova=False):
-    th_dias = "".join([f'<th style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #333;">{d}</th>' for d in colunas_dias])
-    html_table = f"""
-<table style="width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 13px;">
-    <thead>
-        <tr style="background-color: #f8f9fa;">
-            <th style="border: 1px solid #ddd; padding: 10px; text-align: left; color: #333;">Item de Custeio</th>
-            {th_dias}
-            <th style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #333; background-color: #fff1e6;">Total (R$)</th>
-            <th style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #333;">Por Pessoa/dia</th>
-        </tr>
-    </thead>
-    <tbody>
+    tab_mot = dados_pedido.get('Tabela_Motorista', [])
+    tab_pass = dados_pedido.get('Tabela_Passageiros', [])
+    if not tab_mot and not tab_pass:
+        tab_pass = tabela_itens
+
+    def construir_html_tabela(lista_rows, titulo_secao):
+        if not lista_rows: return ""
+        th_dias = "".join([f'<th style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #333;">{d}</th>' for d in colunas_dias])
+        html = f"""
+        <div style="margin-top: 15px; margin-bottom: 20px;">
+            <h4 style="color: #2e86c1; font-size: 15px; margin-bottom: 8px;">📌 {titulo_secao}</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                    <tr style="background-color: #f8f9fa;">
+                        <th style="border: 1px solid #ddd; padding: 10px; text-align: left; color: #333;">Item de Custeio</th>
+                        {th_dias}
+                        <th style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #333; background-color: #fff1e6;">Total (R$)</th>
+                        <th style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #333;">Por Pessoa/dia</th>
+                    </tr>
+                </thead>
+                <tbody>
 """
-    for item in tabela_itens:
-        td_dias = "".join([f'<td style="border: 1px solid #ddd; padding: 8px; text-align: center; color: #555;">{item[d]}</td>' for d in colunas_dias])
-        html_table += f"""
-        <tr>
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: left; font-weight: bold;">{item['Item']}</td>
-            {td_dias}
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #fff1e6;"><strong>{item['Total (R$)']}</strong></td>
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: center; color: #666;">{item['Por Pessoa/dia']}</td>
-        </tr>
+        for item in lista_rows:
+            td_dias = "".join([f'<td style="border: 1px solid #ddd; padding: 8px; text-align: center; color: #555;">{item[d]}</td>' for d in colunas_dias])
+            html += f"""
+            <tr>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: left; font-weight: bold;">{item['Item']}</td>
+                {td_dias}
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #fff1e6;"><strong>{item['Total (R$)']}</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: center; color: #666;">{item['Por Pessoa/dia']}</td>
+            </tr>
 """
-    html_table += "    </tbody>\n</table>"
+        html += "    </tbody>\n</table>\n</div>"
+        return html
+
+    html_tabelas = ""
+    if tab_mot:
+        html_tabelas += construir_html_tabela(tab_mot, "Planilha 1: Diária - Motorista Designado (Lei Municipal nº 5.262/2026)")
+    if tab_pass:
+        tit = "Planilha 2: Alimentação e Despesas - Demais Integrantes (Lei nº 4.297/2018)" if tab_mot else "Tabela Detalhada de Custeio:"
+        html_tabelas += construir_html_tabela(tab_pass, tit)
 
     num_ad = f"Nº {dados_pedido.get('Numero_Adiantamento', '')}" if dados_pedido.get('Numero_Adiantamento') else ""
 
@@ -297,8 +326,7 @@ def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens,
         <p style="margin: 4px 0; font-size: 14px; color: #444;"><i>{str_passageiros_cargos}</i></p>
     </div>
     <hr style="margin: 25px 0; border: 0; border-top: 1px solid #eee;">
-    <h4 style="color: #444; font-size: 16px;">Tabela Detalhada de Custeio:</h4>
-{html_table}
+{html_tabelas}
     <div style="background-color: #f1f8ff; padding: 20px; border-radius: 6px; border: 1px solid #cce5ff; margin-top: 20px;">
         <p style="margin: 4px 0; font-size: 15px;"><strong>Número de Pessoas Assistidas:</strong> {dados_pedido['Qtd_Pessoas']}</p>
         <h2 style="margin-top: 20px; color: #0056b3; text-align: right; font-size: 26px;">TOTAL A REPASSAR: R$ {dados_pedido['Valor_Final']:.2f}</h2>
