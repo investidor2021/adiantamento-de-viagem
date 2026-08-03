@@ -615,6 +615,8 @@ with tab1:
         else:
             rates_mot = {"cafe": 4 * VALOR_UFM, "almoco": 9 * VALOR_UFM, "jantar": 9 * VALOR_UFM, "pernoite": tabela_fixa[porte]["pernoite"]}
             
+        rates_geral = tabela_fixa[porte]
+        
         cargo_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Cargo']))
         setor_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Setor']))
         
@@ -632,23 +634,27 @@ with tab1:
             st.warning("⚠️ Preencha os Horários de Saída e Retorno para calcular as frações de refeição!")
             st.stop()
             
-        cafe_row = {"Item": "CAFÉ"}
-        almoco_row = {"Item": "ALMOÇO"}
-        janta_row = {"Item": "JANTAR"}
-        pernoite_row = {"Item": "HOSPEDAGEM"}
+        # Linhas para Planilha 1: Motorista Designado (Diária)
+        mot_cafe_row = {"Item": "CAFÉ"}
+        mot_almoco_row = {"Item": "ALMOÇO"}
+        mot_janta_row = {"Item": "JANTAR"}
+        mot_pernoite_row = {"Item": "HOSPEDAGEM"}
         
-        v_total_cafes = 0.0
-        v_total_almocos = 0.0
-        v_total_jantas = 0.0
-        v_total_pernoites = 0.0
+        # Linhas para Planilha 2: Demais Integrantes (Alimentação)
+        pass_cafe_row = {"Item": "CAFÉ"}
+        pass_almoco_row = {"Item": "ALMOÇO"}
+        pass_janta_row = {"Item": "JANTAR"}
+        pass_pernoite_row = {"Item": "HOSPEDAGEM"}
         
-        qtd_cafes_total = 0
-        qtd_almocos_total = 0
-        qtd_jantas_total = 0
-        qtd_pernoites_total = 0
+        v_mot_cafes = 0.0; v_mot_almocos = 0.0; v_mot_jantas = 0.0; v_mot_pernoites = 0.0
+        v_pass_cafes = 0.0; v_pass_almocos = 0.0; v_pass_jantas = 0.0; v_pass_pernoites = 0.0
         
+        qtd_cafes_total = 0; qtd_almocos_total = 0; qtd_jantas_total = 0; qtd_pernoites_total = 0
         fundamentos_usados = set()
         colunas_dias = []
+        
+        qtd_pass = len(passageiros)
+        num_p_geral = (qtd_pass if is_condutor_motorista else len(equipe_pessoas))
         
         for i in range(dias + 1):
             dia_atual = d_saida + timedelta(days=i)
@@ -658,71 +664,66 @@ with tab1:
             is_primeiro = (i == 0)
             is_ultimo = (i == dias)
             
-            v_dia_cafe = 0.0
-            v_dia_almoco = 0.0
-            v_dia_jantar = 0.0
-            v_dia_pernoite = 0.0
-            
-            for p in equipe_pessoas:
-                p_cargo = str(cargo_map.get(p, "")).upper()
-                p_is_mot = ("MOTORISTA" in p_cargo) and is_condutor_motorista
-                
-                if p_is_mot:
-                    fundamentos_usados.add("LEI MUNICIPAL Nº 5.262/2026")
-                    r = rates_mot
-                    
-                    c_cafe = (h_saida <= dtime(6, 30)) if is_primeiro else True
-                    
-                    if is_primeiro and is_ultimo:
-                        c_almoco = (h_saida <= dtime(11, 30)) and (h_retorno >= dtime(13, 30))
-                    elif is_primeiro:
-                        c_almoco = (h_saida <= dtime(11, 30))
-                    elif is_ultimo:
-                        c_almoco = (h_retorno >= dtime(13, 30))
-                    else:
-                        c_almoco = True
-                        
-                    c_jantar = (h_retorno >= dtime(19, 30)) if is_ultimo else True
-                    c_pernoite = False if is_ultimo else hospedagem
+            # 1. Cálculo Motorista Condutor (Lei 5.262)
+            if is_condutor_motorista:
+                fundamentos_usados.add("LEI MUNICIPAL Nº 5.262/2026")
+                c_mot_cafe = (h_saida <= dtime(6, 30)) if is_primeiro else True
+                if is_primeiro and is_ultimo:
+                    c_mot_almoco = (h_saida <= dtime(11, 30)) and (h_retorno >= dtime(13, 30))
+                elif is_primeiro:
+                    c_mot_almoco = (h_saida <= dtime(11, 30))
+                elif is_ultimo:
+                    c_mot_almoco = (h_retorno >= dtime(13, 30))
                 else:
-                    fundamentos_usados.add("LEI Nº 4.297/2018 E PORTARIA 303/2018")
-                    r = tabela_fixa[porte]
+                    c_mot_almoco = True
+                c_mot_jantar = (h_retorno >= dtime(19, 30)) if is_ultimo else True
+                c_mot_pernoite = False if is_ultimo else hospedagem
+                
+                val_mc = rates_mot["cafe"] if c_mot_cafe else 0.0
+                val_ma = rates_mot["almoco"] if c_mot_almoco else 0.0
+                val_mj = rates_mot["jantar"] if c_mot_jantar else 0.0
+                val_mp = rates_mot["pernoite"] if c_mot_pernoite else 0.0
+                
+                v_mot_cafes += val_mc; v_mot_almocos += val_ma; v_mot_jantas += val_mj; v_mot_pernoites += val_mp
+                if c_mot_cafe: qtd_cafes_total += 1
+                if c_mot_almoco: qtd_almocos_total += 1
+                if c_mot_jantar: qtd_jantas_total += 1
+                if c_mot_pernoite: qtd_pernoites_total += 1
+                
+                mot_cafe_row[str_dia] = f"R$ {val_mc:.2f}" if val_mc > 0 else "-"
+                mot_almoco_row[str_dia] = f"R$ {val_ma:.2f}" if val_ma > 0 else "-"
+                mot_janta_row[str_dia] = f"R$ {val_mj:.2f}" if val_mj > 0 else "-"
+                mot_pernoite_row[str_dia] = f"R$ {val_mp:.2f}" if val_mp > 0 else "-"
+                
+            # 2. Cálculo Demais Passageiros / Regra Geral (Lei 4.297)
+            if num_p_geral > 0:
+                fundamentos_usados.add("LEI Nº 4.297/2018 E PORTARIA 303/2018")
+                c_pass_cafe = True; c_pass_almoco = True; c_pass_jantar = True; c_pass_pernoite = False if is_ultimo else hospedagem
+                if is_primeiro:
+                    if h_saida >= dtime(7, 0): c_pass_cafe = False
+                    if h_saida > dtime(16, 0): c_pass_almoco = False
+                    if h_saida >= dtime(21, 0): c_pass_jantar = False
+                if is_ultimo:
+                    if h_retorno <= dtime(7, 0): c_pass_cafe = False
+                    if h_retorno <= dtime(12, 0): c_pass_almoco = False
+                    if h_retorno <= dtime(19, 0): c_pass_jantar = False
                     
-                    c_cafe = True; c_almoco = True; c_jantar = True; c_pernoite = False if is_ultimo else hospedagem
-                    
-                    if is_primeiro:
-                        if h_saida >= dtime(7, 0): c_cafe = False
-                        if h_saida > dtime(16, 0): c_almoco = False
-                        if h_saida >= dtime(21, 0): c_jantar = False
-                        
-                    if is_ultimo:
-                        if h_retorno <= dtime(7, 0): c_cafe = False
-                        if h_retorno <= dtime(12, 0): c_almoco = False
-                        if h_retorno <= dtime(19, 0): c_jantar = False
+                val_pc = (rates_geral["cafe"] * num_p_geral) if c_pass_cafe else 0.0
+                val_pa = (rates_geral["almoco"] * num_p_geral) if c_pass_almoco else 0.0
+                val_pj = (rates_geral["jantar"] * num_p_geral) if c_pass_jantar else 0.0
+                val_pp = (rates_geral["pernoite"] * num_p_geral) if c_pass_pernoite else 0.0
+                
+                v_pass_cafes += val_pc; v_pass_almocos += val_pa; v_pass_jantas += val_pj; v_pass_pernoites += val_pp
+                if c_pass_cafe: qtd_cafes_total += num_p_geral
+                if c_pass_almoco: qtd_almocos_total += num_p_geral
+                if c_pass_jantar: qtd_jantas_total += num_p_geral
+                if c_pass_pernoite: qtd_pernoites_total += num_p_geral
+                
+                pass_cafe_row[str_dia] = f"R$ {val_pc:.2f}" if val_pc > 0 else "-"
+                pass_almoco_row[str_dia] = f"R$ {val_pa:.2f}" if val_pa > 0 else "-"
+                pass_janta_row[str_dia] = f"R$ {val_pj:.2f}" if val_pj > 0 else "-"
+                pass_pernoite_row[str_dia] = f"R$ {val_pp:.2f}" if val_pp > 0 else "-"
 
-                if c_cafe:
-                    v_dia_cafe += r["cafe"]
-                    qtd_cafes_total += 1
-                if c_almoco:
-                    v_dia_almoco += r["almoco"]
-                    qtd_almocos_total += 1
-                if c_jantar:
-                    v_dia_jantar += r["jantar"]
-                    qtd_jantas_total += 1
-                if c_pernoite:
-                    v_dia_pernoite += r["pernoite"]
-                    qtd_pernoites_total += 1
-
-            cafe_row[str_dia] = f"R$ {v_dia_cafe:.2f}" if v_dia_cafe > 0 else "-"
-            almoco_row[str_dia] = f"R$ {v_dia_almoco:.2f}" if v_dia_almoco > 0 else "-"
-            janta_row[str_dia] = f"R$ {v_dia_jantar:.2f}" if v_dia_jantar > 0 else "-"
-            pernoite_row[str_dia] = f"R$ {v_dia_pernoite:.2f}" if v_dia_pernoite > 0 else "-"
-            
-            v_total_cafes += v_dia_cafe
-            v_total_almocos += v_dia_almoco
-            v_total_jantas += v_dia_jantar
-            v_total_pernoites += v_dia_pernoite
-            
         km_rodado = 0.0
         if carro_proprio:
             if km_manual > 0:
@@ -737,42 +738,64 @@ with tab1:
                         km_rodado = int(round(km_bruto * 1.20, -1))
                         
         valor_carro = km_rodado * 0.80
+        v_total_cafes = v_mot_cafes + v_pass_cafes
+        v_total_almocos = v_mot_almocos + v_pass_almocos
+        v_total_jantas = v_mot_jantas + v_pass_jantas
+        v_total_pernoites = v_mot_pernoites + v_pass_pernoites
+        
         total_diarias_equipe = v_total_cafes + v_total_almocos + v_total_jantas + v_total_pernoites
-        v_almoco_base = tabela_fixa[porte]['almoco']
+        v_almoco_base = rates_geral['almoco']
         valor_inesperado = (v_almoco_base * 3.0) if inesperada else 0.0
         valor_final = total_diarias_equipe + combustivel + pedagio + estacionamento + valor_carro + valor_inesperado
         total_diarias_pessoa = (total_diarias_equipe / qtd_pessoas) if qtd_pessoas > 0 else 0.0
 
-        avg_cafe = (v_total_cafes / (qtd_cafes_total if qtd_cafes_total > 0 else 1)) if v_total_cafes > 0 else 0.0
-        avg_almoco = (v_total_almocos / (qtd_almocos_total if qtd_almocos_total > 0 else 1)) if v_total_almocos > 0 else 0.0
-        avg_janta = (v_total_jantas / (qtd_jantas_total if qtd_jantas_total > 0 else 1)) if v_total_jantas > 0 else 0.0
-
-        cafe_row["Total (R$)"] = f"R$ {v_total_cafes:.2f}"
-        almoco_row["Total (R$)"] = f"R$ {v_total_almocos:.2f}"
-        janta_row["Total (R$)"] = f"R$ {v_total_jantas:.2f}"
-        pernoite_row["Total (R$)"] = f"R$ {v_total_pernoites:.2f}"
-        
-        cafe_row["Por Pessoa/dia"] = f"R$ {avg_cafe:.2f}" if v_total_cafes > 0 else "-"
-        almoco_row["Por Pessoa/dia"] = f"R$ {avg_almoco:.2f}" if v_total_almocos > 0 else "-"
-        janta_row["Por Pessoa/dia"] = f"R$ {avg_janta:.2f}" if v_total_jantas > 0 else "-"
-        combust_row = {"Item": "COMBUSTÍVEL", "Total (R$)": f"R$ {combustivel:.2f}", "Por Pessoa/dia": "-"}
-        pedagio_row = {"Item": "PEDÁGIO / TÁXI / ÔNIBUS", "Total (R$)": f"R$ {pedagio:.2f}", "Por Pessoa/dia": "-"}
-        estacionamento_row = {"Item": "ESTACIONAMENTO", "Total (R$)": f"R$ {estacionamento:.2f}", "Por Pessoa/dia": "-"}
-        carro_str = f"CARRO PRÓPRIO ({km_rodado} KM)" if carro_proprio else "CARRO PRÓPRIO (KM)"
-        carro_row = {"Item": carro_str, "Total (R$)": f"R$ {valor_carro:.2f}", "Por Pessoa/dia": "-"}
-        inesp_row = {"Item": "DESPESA INESPERADA", "Total (R$)": f"R$ {valor_inesperado:.2f}", "Por Pessoa/dia": "-"}
-        capital_row = {"Item": "CAPITAL", "Total (R$)": "-", "Por Pessoa/dia": "-"}
-        
-        for c_dia in colunas_dias:
-            combust_row[c_dia] = "-"
-            pedagio_row[c_dia] = "-"
-            estacionamento_row[c_dia] = "-"
-            carro_row[c_dia] = "-"
-            inesp_row[c_dia] = "-"
-            capital_row[c_dia] = "-"
+        # Montar Tabela Motorista (Diária)
+        tabela_mot = []
+        if is_condutor_motorista:
+            mot_cafe_row["Total (R$)"] = f"R$ {v_mot_cafes:.2f}"
+            mot_almoco_row["Total (R$)"] = f"R$ {v_mot_almocos:.2f}"
+            mot_janta_row["Total (R$)"] = f"R$ {v_mot_jantas:.2f}"
+            mot_pernoite_row["Total (R$)"] = f"R$ {v_mot_pernoites:.2f}"
             
-        todas_linhas = [cafe_row, almoco_row, janta_row, pernoite_row, combust_row, pedagio_row, estacionamento_row, carro_row, inesp_row, capital_row]
-        tabela_itens = [r for r in todas_linhas if r.get("Total (R$)") not in ["R$ 0.00", "-"]]
+            mot_cafe_row["Por Pessoa/dia"] = f"R$ {rates_mot['cafe']:.2f}" if v_mot_cafes > 0 else "-"
+            mot_almoco_row["Por Pessoa/dia"] = f"R$ {rates_mot['almoco']:.2f}" if v_mot_almocos > 0 else "-"
+            mot_janta_row["Por Pessoa/dia"] = f"R$ {rates_mot['jantar']:.2f}" if v_mot_jantas > 0 else "-"
+            mot_pernoite_row["Por Pessoa/dia"] = f"R$ {rates_mot['pernoite']:.2f}" if v_mot_pernoites > 0 else "-"
+            tabela_mot = [r for r in [mot_cafe_row, mot_almoco_row, mot_janta_row, mot_pernoite_row] if r.get("Total (R$)") not in ["R$ 0.00", "-"]]
+
+        # Montar Tabela Passageiros (Alimentação)
+        tabela_pass = []
+        if num_p_geral > 0:
+            pass_cafe_row["Total (R$)"] = f"R$ {v_pass_cafes:.2f}"
+            pass_almoco_row["Total (R$)"] = f"R$ {v_pass_almocos:.2f}"
+            pass_janta_row["Total (R$)"] = f"R$ {v_pass_jantas:.2f}"
+            pass_pernoite_row["Total (R$)"] = f"R$ {v_pass_pernoites:.2f}"
+            
+            pass_cafe_row["Por Pessoa/dia"] = f"R$ {rates_geral['cafe']:.2f}" if v_pass_cafes > 0 else "-"
+            pass_almoco_row["Por Pessoa/dia"] = f"R$ {rates_geral['almoco']:.2f}" if v_pass_almocos > 0 else "-"
+            pass_janta_row["Por Pessoa/dia"] = f"R$ {rates_geral['jantar']:.2f}" if v_pass_jantas > 0 else "-"
+            pass_pernoite_row["Por Pessoa/dia"] = f"R$ {rates_geral['pernoite']:.2f}" if v_pass_pernoites > 0 else "-"
+            
+            combust_row = {"Item": "COMBUSTÍVEL", "Total (R$)": f"R$ {combustivel:.2f}", "Por Pessoa/dia": "-"}
+            pedagio_row = {"Item": "PEDÁGIO / TÁXI / ÔNIBUS", "Total (R$)": f"R$ {pedagio:.2f}", "Por Pessoa/dia": "-"}
+            estacionamento_row = {"Item": "ESTACIONAMENTO", "Total (R$)": f"R$ {estacionamento:.2f}", "Por Pessoa/dia": "-"}
+            carro_str = f"CARRO PRÓPRIO ({km_rodado} KM)" if carro_proprio else "CARRO PRÓPRIO (KM)"
+            carro_row = {"Item": carro_str, "Total (R$)": f"R$ {valor_carro:.2f}", "Por Pessoa/dia": "-"}
+            inesp_row = {"Item": "DESPESA INESPERADA", "Total (R$)": f"R$ {valor_inesperado:.2f}", "Por Pessoa/dia": "-"}
+            capital_row = {"Item": "CAPITAL", "Total (R$)": "-", "Por Pessoa/dia": "-"}
+            
+            for c_dia in colunas_dias:
+                combust_row[c_dia] = "-"
+                pedagio_row[c_dia] = "-"
+                estacionamento_row[c_dia] = "-"
+                carro_row[c_dia] = "-"
+                inesp_row[c_dia] = "-"
+                capital_row[c_dia] = "-"
+                
+            todas_linhas_p = [pass_cafe_row, pass_almoco_row, pass_janta_row, pass_pernoite_row, combust_row, pedagio_row, estacionamento_row, carro_row, inesp_row, capital_row]
+            tabela_pass = [r for r in todas_linhas_p if r.get("Total (R$)") not in ["R$ 0.00", "-"]]
+
+        tabela_itens = tabela_mot + tabela_pass
         
         lista_detalhada_pessoas = []
         lista_detalhada_pessoas.append(f"{solicitante} ({solic_cargo})")
@@ -813,7 +836,9 @@ with tab1:
             'Extras': combustivel + pedagio + estacionamento + valor_carro,
             'Inesperadas': valor_inesperado,
             'Valor_Final': valor_final,
-            'Fundamento_Legal': fundamento_legal
+            'Fundamento_Legal': fundamento_legal,
+            'Tabela_Motorista': tabela_mot,
+            'Tabela_Passageiros': tabela_pass
         }
         
         st.session_state['pedido_atual'] = {
