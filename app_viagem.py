@@ -51,6 +51,11 @@ def remove_accents(input_str):
     nfkd_form = unicodedata.normalize('NFKD', input_str)
     return u"".join([c for c in nfkd_form if not unicodedata.combining(c)])
 
+def parse_populacao(pop_val):
+    if not pop_val: return 0
+    clean = re.sub(r'[^\d]', '', str(pop_val))
+    return int(clean) if clean else 0
+
 class PDF(FPDF):
     def header(self):
         if os.path.exists('assets/brasao.jpg'):
@@ -107,7 +112,8 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
         for line in textwrap.wrap(txt, width=width, break_long_words=True):
             pdf.cell(0, 6, cl(line), 0, 1)
 
-    pdf.cell(0, 6, cl("FUNDAMENTO LEGAL: LEI No 4.297/2018 E PORTARIA 303, DE 15 DE MARCO DE 2018."), 0, 1)
+    fundamento_txt = dados.get('Fundamento_Legal', 'LEI No 4.297/2018 E PORTARIA 303, DE 15 DE MARCO DE 2018.')
+    write_wrapped(f"FUNDAMENTO LEGAL: {fundamento_txt}")
     write_wrapped(f"Destino: {dados['Destino']}")
     write_wrapped(f"Finalidade: {dados['Finalidade']}")
     write_wrapped(f"Data/Periodo: {dados['Data_Saida']} a {dados['Data_Retorno']}")
@@ -283,6 +289,7 @@ def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens,
     </table>
     <br>
     <div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #eee;">
+        <p style="margin: 4px 0; font-size: 14px; color: #2e86c1;"><strong>Fundamento Legal:</strong> {dados_pedido.get('Fundamento_Legal', 'LEI Nº 4.297/2018 E PORTARIA 303/2018')}</p>
         <p style="margin: 4px 0; font-size: 15px;"><strong>Data / Período:</strong> {dados_pedido['Data_Saida']} a {dados_pedido['Data_Retorno']}</p>
         <p style="margin: 4px 0; font-size: 15px;"><strong>Horário de Saída:</strong> {dados_pedido['Hora_Saida']} &nbsp;&nbsp;|&nbsp;&nbsp; <strong>Horário de Chegada:</strong> {dados_pedido['Hora_Retorno']}</p>
         <br>
@@ -562,14 +569,32 @@ with tab1:
         row_mun = df_cid[df_cid['Municipio_UF'] == destino].iloc[0]
         porte = str(row_mun['Porte']).strip().upper()
         if porte not in val_porte: porte = "PP"
-            
+        
+        populacao_num = parse_populacao(row_mun.get('Populacao', 0))
+        grupo_mot = "GRUPO II" if populacao_num > 200000 else "GRUPO I"
+        
+        VALOR_UFM = 4.50
+        
         tabela_fixa = {
             "GP": {"almoco": 55.0, "jantar": 55.0, "cafe": 20.0, "pernoite": 190.0},
             "MP": {"almoco": 40.0, "jantar": 40.0, "cafe": 18.0, "pernoite": 140.0},
             "PP": {"almoco": 31.0, "jantar": 31.0, "cafe": 15.0, "pernoite": 100.0}
         }
         if porte not in tabela_fixa: porte = "PP"
+        
+        if grupo_mot == "GRUPO II":
+            rates_mot = {"cafe": 5 * VALOR_UFM, "almoco": 13 * VALOR_UFM, "jantar": 13 * VALOR_UFM, "pernoite": tabela_fixa[porte]["pernoite"]}
+        else:
+            rates_mot = {"cafe": 4 * VALOR_UFM, "almoco": 9 * VALOR_UFM, "jantar": 9 * VALOR_UFM, "pernoite": tabela_fixa[porte]["pernoite"]}
             
+        cargo_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Cargo']))
+        setor_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Setor']))
+        
+        solic_cargo = cargo_map.get(solicitante, "PASSAGEIRO")
+        solic_setor = setor_map.get(solicitante, "-")
+        is_condutor_motorista = "MOTORISTA" in str(solic_cargo).upper()
+        
+        equipe_pessoas = [solicitante] + passageiros
         dias = (d_retorno - d_saida).days
         if dias < 0:
             st.error("A Data de Retorno não pode ser anterior à Saída!")
@@ -579,21 +604,22 @@ with tab1:
             st.warning("⚠️ Preencha os Horários de Saída e Retorno para calcular as frações de refeição!")
             st.stop()
             
-        time_limit_saida = dtime(7, 0)
-        time_limit_retorno = dtime(19, 0)
-        
-        v_cafe = tabela_fixa[porte]['cafe']
-        v_almoco = tabela_fixa[porte]['almoco']
-        v_janta = tabela_fixa[porte]['jantar']
-        v_pernoite = tabela_fixa[porte]['pernoite']
-        v_almoco_base = v_almoco
-
         cafe_row = {"Item": "CAFÉ"}
         almoco_row = {"Item": "ALMOÇO"}
         janta_row = {"Item": "JANTAR"}
         pernoite_row = {"Item": "HOSPEDAGEM"}
         
-        qtd_cafes = 0; qtd_almocos = 0; qtd_jantas = 0; qtd_pernoites = 0
+        v_total_cafes = 0.0
+        v_total_almocos = 0.0
+        v_total_jantas = 0.0
+        v_total_pernoites = 0.0
+        
+        qtd_cafes_total = 0
+        qtd_almocos_total = 0
+        qtd_jantas_total = 0
+        qtd_pernoites_total = 0
+        
+        fundamentos_usados = set()
         colunas_dias = []
         
         for i in range(dias + 1):
@@ -604,33 +630,71 @@ with tab1:
             is_primeiro = (i == 0)
             is_ultimo = (i == dias)
             
-            cafe = True; almoco = True; jantar = True; pernoite = False if is_ultimo else True
+            v_dia_cafe = 0.0
+            v_dia_almoco = 0.0
+            v_dia_jantar = 0.0
+            v_dia_pernoite = 0.0
             
-            if is_primeiro:
-                if h_saida >= time_limit_saida: cafe = False
-                if h_saida > dtime(16, 0): almoco = False
-                if h_saida >= dtime(21, 0): jantar = False
+            for p in equipe_pessoas:
+                p_cargo = str(cargo_map.get(p, "")).upper()
+                p_is_mot = ("MOTORISTA" in p_cargo) and is_condutor_motorista
                 
-            if is_ultimo:
-                if h_retorno >= dtime(7, 0): cafe = False
-                if h_retorno <= dtime(12, 0): almoco = False
-                if h_retorno <= time_limit_retorno: jantar = False
-                
-            if cafe: qtd_cafes += 1
-            if almoco: qtd_almocos += 1
-            if jantar: qtd_jantas += 1
-            if (pernoite and hospedagem): qtd_pernoites += 1
-            
-            cafe_row[str_dia] = f"R$ {(v_cafe * qtd_pessoas):.2f}" if cafe else "-"
-            almoco_row[str_dia] = f"R$ {(v_almoco * qtd_pessoas):.2f}" if almoco else "-"
-            janta_row[str_dia] = f"R$ {(v_janta * qtd_pessoas):.2f}" if jantar else "-"
-            pernoite_row[str_dia] = f"R$ {(v_pernoite * qtd_pessoas):.2f}" if (pernoite and hospedagem) else "-"
+                if p_is_mot:
+                    fundamentos_usados.add("LEI MUNICIPAL Nº 5.262/2026")
+                    r = rates_mot
+                    
+                    c_cafe = (h_saida <= dtime(6, 30)) if is_primeiro else True
+                    
+                    if is_primeiro and is_ultimo:
+                        c_almoco = (h_saida <= dtime(11, 30)) and (h_retorno >= dtime(13, 30))
+                    elif is_primeiro:
+                        c_almoco = (h_saida <= dtime(11, 30))
+                    elif is_ultimo:
+                        c_almoco = (h_retorno >= dtime(13, 30))
+                    else:
+                        c_almoco = True
+                        
+                    c_jantar = (h_retorno >= dtime(19, 30)) if is_ultimo else True
+                    c_pernoite = False if is_ultimo else hospedagem
+                else:
+                    fundamentos_usados.add("LEI Nº 4.297/2018 E PORTARIA 303/2018")
+                    r = tabela_fixa[porte]
+                    
+                    c_cafe = True; c_almoco = True; c_jantar = True; c_pernoite = False if is_ultimo else hospedagem
+                    
+                    if is_primeiro:
+                        if h_saida >= dtime(7, 0): c_cafe = False
+                        if h_saida > dtime(16, 0): c_almoco = False
+                        if h_saida >= dtime(21, 0): c_jantar = False
+                        
+                    if is_ultimo:
+                        if h_retorno >= dtime(7, 0) and not is_primeiro: pass
+                        if h_retorno <= dtime(12, 0): c_almoco = False
+                        if h_retorno <= dtime(19, 0): c_jantar = False
 
-        v_total_cafes = (qtd_cafes * v_cafe) * qtd_pessoas
-        v_total_almocos = (qtd_almocos * v_almoco) * qtd_pessoas
-        v_total_jantas = (qtd_jantas * v_janta) * qtd_pessoas
-        v_total_pernoites = (qtd_pernoites * v_pernoite) * qtd_pessoas
-        
+                if c_cafe:
+                    v_dia_cafe += r["cafe"]
+                    qtd_cafes_total += 1
+                if c_almoco:
+                    v_dia_almoco += r["almoco"]
+                    qtd_almocos_total += 1
+                if c_jantar:
+                    v_dia_jantar += r["jantar"]
+                    qtd_jantas_total += 1
+                if c_pernoite:
+                    v_dia_pernoite += r["pernoite"]
+                    qtd_pernoites_total += 1
+
+            cafe_row[str_dia] = f"R$ {v_dia_cafe:.2f}" if v_dia_cafe > 0 else "-"
+            almoco_row[str_dia] = f"R$ {v_dia_almoco:.2f}" if v_dia_almoco > 0 else "-"
+            janta_row[str_dia] = f"R$ {v_dia_jantar:.2f}" if v_dia_jantar > 0 else "-"
+            pernoite_row[str_dia] = f"R$ {v_dia_pernoite:.2f}" if v_dia_pernoite > 0 else "-"
+            
+            v_total_cafes += v_dia_cafe
+            v_total_almocos += v_dia_almoco
+            v_total_jantas += v_dia_jantar
+            v_total_pernoites += v_dia_pernoite
+            
         km_rodado = 0.0
         if carro_proprio:
             if km_manual > 0:
@@ -646,18 +710,23 @@ with tab1:
                         
         valor_carro = km_rodado * 0.80
         total_diarias_equipe = v_total_cafes + v_total_almocos + v_total_jantas + v_total_pernoites
+        v_almoco_base = tabela_fixa[porte]['almoco']
         valor_inesperado = (v_almoco_base * 3.0) if inesperada else 0.0
         valor_final = total_diarias_equipe + combustivel + pedagio + estacionamento + valor_carro + valor_inesperado
         total_diarias_pessoa = (total_diarias_equipe / qtd_pessoas) if qtd_pessoas > 0 else 0.0
+
+        avg_cafe = (v_total_cafes / (qtd_cafes_total if qtd_cafes_total > 0 else 1)) if v_total_cafes > 0 else 0.0
+        avg_almoco = (v_total_almocos / (qtd_almocos_total if qtd_almocos_total > 0 else 1)) if v_total_almocos > 0 else 0.0
+        avg_janta = (v_total_jantas / (qtd_jantas_total if qtd_jantas_total > 0 else 1)) if v_total_jantas > 0 else 0.0
 
         cafe_row["Total (R$)"] = f"R$ {v_total_cafes:.2f}"
         almoco_row["Total (R$)"] = f"R$ {v_total_almocos:.2f}"
         janta_row["Total (R$)"] = f"R$ {v_total_jantas:.2f}"
         pernoite_row["Total (R$)"] = f"R$ {v_total_pernoites:.2f}"
         
-        cafe_row["Por Pessoa/dia"] = f"R$ {v_cafe:.2f}" if qtd_cafes > 0 else "-"
-        almoco_row["Por Pessoa/dia"] = f"R$ {v_almoco:.2f}" if qtd_almocos > 0 else "-"
-        janta_row["Por Pessoa/dia"] = f"R$ {v_janta:.2f}" if qtd_jantas > 0 else "-"
+        cafe_row["Por Pessoa/dia"] = f"R$ {avg_cafe:.2f}" if v_total_cafes > 0 else "-"
+        almoco_row["Por Pessoa/dia"] = f"R$ {avg_almoco:.2f}" if v_total_almocos > 0 else "-"
+        janta_row["Por Pessoa/dia"] = f"R$ {avg_janta:.2f}" if v_total_jantas > 0 else "-"
         combust_row = {"Item": "COMBUSTÍVEL", "Total (R$)": f"R$ {combustivel:.2f}", "Por Pessoa/dia": "-"}
         pedagio_row = {"Item": "PEDÁGIO / TÁXI / ÔNIBUS", "Total (R$)": f"R$ {pedagio:.2f}", "Por Pessoa/dia": "-"}
         estacionamento_row = {"Item": "ESTACIONAMENTO", "Total (R$)": f"R$ {estacionamento:.2f}", "Por Pessoa/dia": "-"}
@@ -677,20 +746,21 @@ with tab1:
         todas_linhas = [cafe_row, almoco_row, janta_row, pernoite_row, combust_row, pedagio_row, estacionamento_row, carro_row, inesp_row, capital_row]
         tabela_itens = [r for r in todas_linhas if r.get("Total (R$)") not in ["R$ 0.00", "-"]]
         
-        cargo_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Cargo']))
-        setor_map = dict(zip(df_mot['Nome_Motorista'], df_mot['Setor']))
-        
         lista_detalhada_pessoas = []
-        solic_cargo = cargo_map.get(solicitante, "PASSAGEIRO")
-        solic_setor = setor_map.get(solicitante, "-")
         lista_detalhada_pessoas.append(f"{solicitante} ({solic_cargo})")
         
         for p in passageiros:
             lista_detalhada_pessoas.append(f"{p} ({cargo_map.get(p, 'PASSAGEIRO')})")
             
         str_passageiros_cargos = " , ".join(lista_detalhada_pessoas)
-        
         veiculo_final = placa_proprio.strip().upper() if (km_rodado > 0 and placa_proprio.strip() != "") else veiculo
+
+        if "LEI MUNICIPAL Nº 5.262/2026" in fundamentos_usados and "LEI Nº 4.297/2018 E PORTARIA 303/2018" in fundamentos_usados:
+            fundamento_legal = "LEI MUNICIPAL Nº 5.262/2026 (MOTORISTA) E LEI Nº 4.297/2018"
+        elif "LEI MUNICIPAL Nº 5.262/2026" in fundamentos_usados:
+            fundamento_legal = "LEI MUNICIPAL Nº 5.262, DE 28 DE JULHO DE 2026"
+        else:
+            fundamento_legal = "LEI Nº 4.297/2018 E PORTARIA 303, DE 15 DE MARÇO DE 2018"
         
         dados_pedido = {
             'Numero_Adiantamento': numero_adiantamento,
@@ -707,14 +777,15 @@ with tab1:
             'Data_Retorno': d_retorno.strftime("%d/%m/%Y"),
             'Hora_Retorno': h_retorno.strftime("%H:%M"),
             'Qtd_Pessoas': qtd_pessoas,
-            'Qtd_Cafes': qtd_cafes * qtd_pessoas, 'V_Cafes': v_total_cafes,
-            'Qtd_Almocos': qtd_almocos * qtd_pessoas, 'V_Almocos': v_total_almocos,
-            'Qtd_Jantas': qtd_jantas * qtd_pessoas, 'V_Jantas': v_total_jantas,
-            'Qtd_Pernoites': qtd_pernoites * qtd_pessoas, 'V_Pernoites': v_total_pernoites,
+            'Qtd_Cafes': qtd_cafes_total, 'V_Cafes': v_total_cafes,
+            'Qtd_Almocos': qtd_almocos_total, 'V_Almocos': v_total_almocos,
+            'Qtd_Jantas': qtd_jantas_total, 'V_Jantas': v_total_jantas,
+            'Qtd_Pernoites': qtd_pernoites_total, 'V_Pernoites': v_total_pernoites,
             'Valor_Diaria': total_diarias_pessoa,
             'Extras': combustivel + pedagio + estacionamento + valor_carro,
             'Inesperadas': valor_inesperado,
-            'Valor_Final': valor_final
+            'Valor_Final': valor_final,
+            'Fundamento_Legal': fundamento_legal
         }
         
         st.session_state['pedido_atual'] = {
