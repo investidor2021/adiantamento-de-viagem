@@ -668,7 +668,7 @@ with tab1:
                         if h_saida >= dtime(21, 0): c_jantar = False
                         
                     if is_ultimo:
-                        if h_retorno >= dtime(7, 0) and not is_primeiro: pass
+                        if h_retorno <= dtime(7, 0): c_cafe = False
                         if h_retorno <= dtime(12, 0): c_almoco = False
                         if h_retorno <= dtime(19, 0): c_jantar = False
 
