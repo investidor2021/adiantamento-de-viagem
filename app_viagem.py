@@ -669,11 +669,11 @@ with tab1:
                 fundamentos_usados.add("LEI MUNICIPAL Nº 5.262/2026")
                 c_mot_cafe = (h_saida <= dtime(6, 30)) if is_primeiro else True
                 if is_primeiro and is_ultimo:
-                    c_mot_almoco = (h_saida <= dtime(11, 30)) and (h_retorno >= dtime(13, 30))
+                    c_mot_almoco = (h_saida <= dtime(11, 30)) and (h_retorno >= dtime(11, 30))
                 elif is_primeiro:
                     c_mot_almoco = (h_saida <= dtime(11, 30))
                 elif is_ultimo:
-                    c_mot_almoco = (h_retorno >= dtime(13, 30))
+                    c_mot_almoco = (h_retorno >= dtime(11, 30))
                 else:
                     c_mot_almoco = True
                 c_mot_jantar = (h_retorno >= dtime(19, 30)) if is_ultimo else True
@@ -705,7 +705,7 @@ with tab1:
                     if h_saida >= dtime(21, 0): c_pass_jantar = False
                 if is_ultimo:
                     if h_retorno <= dtime(7, 0): c_pass_cafe = False
-                    if h_retorno <= dtime(12, 0): c_pass_almoco = False
+                    if h_retorno < dtime(11, 30): c_pass_almoco = False
                     if h_retorno <= dtime(19, 0): c_pass_jantar = False
                     
                 val_pc = (rates_geral["cafe"] * num_p_geral) if c_pass_cafe else 0.0
