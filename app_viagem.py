@@ -57,6 +57,7 @@ def parse_populacao(pop_val):
     return int(clean) if clean else 0
 
 class PDF(FPDF):
+    titulo_header = 'ADIANTAMENTO VIAGEM - SERVICO/TREINAMENTO'
     def header(self):
         if os.path.exists('assets/brasao.jpg'):
             try:
@@ -65,7 +66,8 @@ class PDF(FPDF):
                 pass
         self.set_font('Arial', 'B', 14)
         self.cell(28) 
-        self.cell(0, 8, 'ADIANTAMENTO VIAGEM - SERVICO/TREINAMENTO', 0, 1, 'C')
+        titulo_h = getattr(self, 'titulo_header', 'ADIANTAMENTO VIAGEM - SERVICO/TREINAMENTO')
+        self.cell(0, 8, titulo_h, 0, 1, 'C')
         self.set_font('Arial', '', 11)
         self.cell(28)
         self.cell(0, 6, 'PREFEITURA MUNICIPAL', 0, 1, 'C')
@@ -73,9 +75,62 @@ class PDF(FPDF):
 
 def cl(t): return str(t).encode('latin-1', 'replace').decode('latin-1')
 
-def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
+def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias, tipo='completo'):
     pdf = PDF()
     
+    tab_mot = dados.get('Tabela_Motorista', [])
+    tab_pass = dados.get('Tabela_Passageiros', [])
+    if not tab_mot and not tab_pass:
+        tab_pass = tabela_itens
+        
+    v_mot = dados.get('Valor_Motorista', 0.0)
+    v_pass = dados.get('Valor_Passageiros', 0.0)
+
+    if v_mot == 0.0 and tab_mot:
+        for r in tab_mot:
+            val_str = str(r.get('Total (R$)', '0')).replace('R$', '').replace('.', '').replace(',', '.').strip()
+            try: v_mot += float(val_str)
+            except: pass
+    if v_pass == 0.0 and tab_pass:
+        for r in tab_pass:
+            val_str = str(r.get('Total (R$)', '0')).replace('R$', '').replace('.', '').replace(',', '.').strip()
+            try: v_pass += float(val_str)
+            except: pass
+            
+    if tipo == 'motorista':
+        pdf.titulo_header = 'ADIANTAMENTO VIAGEM - MOTORISTA DESIGNADO'
+        solic_pdf = dados.get('Solicitante_Motorista') or dados['Solicitante']
+        cargo_pdf = dados.get('Cargo_Motorista') or dados.get('Cargo_Solicitante', 'MOTORISTA DESIGNADO')
+        setor_pdf = dados.get('Setor_Solicitante', '-')
+        valor_pdf = v_mot if v_mot > 0 else dados['Valor_Final']
+        fundamento_pdf = 'LEI MUNICIPAL No 5.262, DE 28 DE JULHO DE 2026.'
+        passag_pdf = dados.get('Nomes_Motorista') or solic_pdf
+        qtd_p_pdf = 1
+        rows_mot = tab_mot
+        rows_pass = []
+    elif tipo == 'normal':
+        pdf.titulo_header = 'ADIANTAMENTO VIAGEM - SERVICO/TREINAMENTO'
+        solic_pdf = dados.get('Solicitante_Normal') or dados['Solicitante']
+        cargo_pdf = dados.get('Cargo_Normal') or dados.get('Cargo_Solicitante', '-')
+        setor_pdf = dados.get('Setor_Solicitante', '-')
+        valor_pdf = v_pass if v_pass > 0 else dados['Valor_Final']
+        fundamento_pdf = 'LEI No 4.297/2018 E PORTARIA 303, DE 15 DE MARCO DE 2018.'
+        passag_pdf = dados.get('Nomes_Demais_Passageiros') or str_pass
+        qtd_p_pdf = dados.get('Qtd_Passageiros', dados['Qtd_Pessoas'])
+        rows_mot = []
+        rows_pass = tab_pass if tab_pass else tabela_itens
+    else: # completo
+        pdf.titulo_header = 'ADIANTAMENTO VIAGEM - SERVICO/TREINAMENTO'
+        solic_pdf = dados['Solicitante']
+        cargo_pdf = dados.get('Cargo_Solicitante', '-')
+        setor_pdf = dados.get('Setor_Solicitante', '-')
+        valor_pdf = dados['Valor_Final']
+        fundamento_pdf = dados.get('Fundamento_Legal', 'LEI No 4.297/2018 E PORTARIA 303, DE 15 DE MARCO DE 2018.')
+        passag_pdf = str_pass
+        qtd_p_pdf = dados['Qtd_Pessoas']
+        rows_mot = tab_mot
+        rows_pass = tab_pass if (tab_mot or tab_pass) else tabela_itens
+
     # ---- PAGE 1 ----
     pdf.add_page()
     pdf.ln(12)
@@ -94,26 +149,20 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(2)
 
-    pdf.cell(0, 6, cl(f"Solicitante: {dados['Solicitante']}"), 0, 1)
-    pdf.cell(0, 6, cl(f"Cargo: {dados.get('Cargo_Solicitante', '-')}"), 0, 1)
-    pdf.cell(0, 6, cl(f"Departamento: {dados.get('Setor_Solicitante', '-')}"), 0, 1)
-    pdf.cell(0, 6, cl(f"Setor: {dados.get('Setor_Solicitante', '-')}"), 0, 1)
+    pdf.cell(0, 6, cl(f"Solicitante: {solic_pdf}"), 0, 1)
+    pdf.cell(0, 6, cl(f"Cargo: {cargo_pdf}"), 0, 1)
+    pdf.cell(0, 6, cl(f"Departamento: {setor_pdf}"), 0, 1)
+    pdf.cell(0, 6, cl(f"Setor: {setor_pdf}"), 0, 1)
     
     separator()
     
     pdf.set_font('Arial', 'B', 12)
-    pdf.cell(0, 6, f"VALOR: R$ {dados['Valor_Final']:.2f}", 0, 1)
+    pdf.cell(0, 6, f"VALOR: R$ {valor_pdf:.2f}", 0, 1)
     pdf.set_font('Arial', '', 10)
     
     separator()
     
-    import textwrap
-    def write_wrapped(txt, width=95):
-        for line in textwrap.wrap(txt, width=width, break_long_words=True):
-            pdf.cell(0, 6, cl(line), 0, 1)
-
-    fundamento_txt = dados.get('Fundamento_Legal', 'LEI No 4.297/2018 E PORTARIA 303, DE 15 DE MARCO DE 2018.')
-    write_wrapped(f"FUNDAMENTO LEGAL: {fundamento_txt}")
+    write_wrapped(f"FUNDAMENTO LEGAL: {fundamento_pdf}")
     write_wrapped(f"Destino: {dados['Destino']}")
     write_wrapped(f"Finalidade: {dados['Finalidade']}")
     write_wrapped(f"Data/Periodo: {dados['Data_Saida']} a {dados['Data_Retorno']}")
@@ -132,7 +181,7 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     
     separator()
     
-    write_wrapped('Quantidade de Pessoas, Nomes e Cargos: ' + str_pass)
+    write_wrapped('Quantidade de Pessoas, Nomes e Cargos: ' + passag_pdf)
     
     separator()
     
@@ -182,7 +231,7 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
         pdf.cell(0, 6, f"Adiantamento Nº {dados['Numero_Adiantamento']} / {date.today().year}", 0, 1, 'C')
     pdf.ln(4)
     
-    pdf.cell(0, 6, cl(f"Responsavel: {dados['Solicitante']}"), 0, 1)
+    pdf.cell(0, 6, cl(f"Responsavel: {solic_pdf}"), 0, 1)
     pdf.cell(0, 6, cl(f"Destino: {dados['Destino']}"), 0, 1)
     pdf.cell(0, 6, f"Data da Viagem: {dados['Data_Saida']} a {dados['Data_Retorno']}", 0, 1)
     
@@ -190,11 +239,6 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
     pdf.line(10, pdf.get_y(), 10 + printable_width, pdf.get_y())
     pdf.ln(3)
     
-    tab_mot = dados.get('Tabela_Motorista', [])
-    tab_pass = dados.get('Tabela_Passageiros', [])
-    if not tab_mot and not tab_pass:
-        tab_pass = tabela_itens
-
     font_s = 8
     if num_dias > 12: font_s = 7
     if num_dias > 20: font_s = 6
@@ -228,24 +272,24 @@ def criar_pdf_b64(dados, str_pass, tabela_itens, colunas_dias):
             pdf.cell(w_pessoa, 7, cl(dt['Por Pessoa/dia']), 1, 1, 'C')
         pdf.ln(4)
 
-    if tab_mot:
-        desenhar_tabela_pdf(tab_mot, "PLANILHA 1: DIÁRIA - MOTORISTA DESIGNADO (LEI Nº 5.262/2026)")
-    if tab_pass:
-        tit = "PLANILHA 2: ALIMENTAÇÃO E DESPESAS - DEMAIS INTEGRANTES (LEI Nº 4.297/2018)" if tab_mot else "SEGUE, OS VALORES REFERENTES A ALIMENTAÇÃO:"
-        desenhar_tabela_pdf(tab_pass, tit)
+    if rows_mot:
+        desenhar_tabela_pdf(rows_mot, "PLANILHA 1: DIÁRIA - MOTORISTA DESIGNADO (LEI Nº 5.262/2026)")
+    if rows_pass:
+        tit = "PLANILHA 2: ALIMENTAÇÃO E DESPESAS - DEMAIS INTEGRANTES (LEI Nº 4.297/2018)" if rows_mot else "SEGUE, OS VALORES REFERENTES A ALIMENTAÇÃO:"
+        desenhar_tabela_pdf(rows_pass, tit)
 
     pdf.ln(2)
     pdf.set_font('Arial', 'B', 12)
-    pdf.cell(0, 8, f"TOTAL: R$ {dados['Valor_Final']:.2f}", 0, 1)
+    pdf.cell(0, 8, f"TOTAL: R$ {valor_pdf:.2f}", 0, 1)
     pdf.cell(0, 4, "", 0, 1)
     pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 6, f"Numero de Pessoas: {dados['Qtd_Pessoas']}", 0, 1)
+    pdf.cell(0, 6, f"Numero de Pessoas: {qtd_p_pdf}", 0, 1)
     
     pdf.ln(12)
     pdf.cell(190, 6, "Ciente em ____/____/____", 0, 1, 'C')
     pdf.ln(12)
     pdf.cell(190, 6, "______________________________________", 0, 1, 'C')
-    pdf.cell(190, 6, cl(dados['Solicitante']), 0, 1, 'C')
+    pdf.cell(190, 6, cl(solic_pdf), 0, 1, 'C')
     
     res = pdf.output(dest='S')
     if isinstance(res, str): res = res.encode('latin1')
@@ -342,9 +386,26 @@ def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens,
     st.markdown(html_final, unsafe_allow_html=True)
     
     try:
-        b64_pdf = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias)
-        href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="Adiantamento_Ordem.pdf" target="_blank"><button style="width:100%; padding:15px; font-size:18px; font-weight:bold; cursor:pointer; background-color:#2e86c1; color:white; border:none; border-radius:5px;">📥 BAIXAR RECIBO PDF OFICIAL</button></a>'
-        
+        v_mot = dados_pedido.get('Valor_Motorista', 0.0)
+        v_pass = dados_pedido.get('Valor_Passageiros', 0.0)
+        v_final = dados_pedido.get('Valor_Final', 0.0)
+
+        if v_mot == 0.0 and tab_mot:
+            for r in tab_mot:
+                val_str = str(r.get('Total (R$)', '0')).replace('R$', '').replace('.', '').replace(',', '.').strip()
+                try: v_mot += float(val_str)
+                except: pass
+        if v_pass == 0.0 and tab_pass:
+            for r in tab_pass:
+                val_str = str(r.get('Total (R$)', '0')).replace('R$', '').replace('.', '').replace(',', '.').strip()
+                try: v_pass += float(val_str)
+                except: pass
+
+        tem_mot = len(tab_mot) > 0 and v_mot > 0
+        tem_pass = len(tab_pass) > 0 and v_pass > 0
+
+        b64_pdf_completo = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='completo')
+
         if is_nova:
             if not st.session_state.get('pedido_salvo', False):
                 st.warning("⚠️ Atenção: Este cálculo ainda é provisório e **NÃO** foi salvo no banco de dados.")
@@ -355,11 +416,53 @@ def renderizar_recibo_visual(dados_pedido, str_passageiros_cargos, tabela_itens,
                         st.session_state['pedido_salvo'] = True
                         st.rerun()
             else:
-                st.success("✅ Pedido gravado com sucesso! Já pode emitir o PDF oficial.")
-                st.markdown(href, unsafe_allow_html=True)
+                st.success("✅ Pedido gravado com sucesso! Selecione abaixo o PDF que deseja baixar:")
+                if tem_mot and tem_pass:
+                    b64_pdf_mot = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='motorista')
+                    b64_pdf_pass = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='normal')
+
+                    c_pdf1, c_pdf2, c_pdf3 = st.columns(3)
+                    with c_pdf1:
+                        href_mot = f'<a href="data:application/pdf;base64,{b64_pdf_mot}" download="Adiantamento_Motorista.pdf" target="_blank"><button style="width:100%; padding:14px; font-size:15px; font-weight:bold; cursor:pointer; background-color:#1e8449; color:white; border:none; border-radius:5px;">🚚 PDF 1: MOTORISTA<br>(R$ {v_mot:.2f})</button></a>'
+                        st.markdown(href_mot, unsafe_allow_html=True)
+                    with c_pdf2:
+                        href_pass = f'<a href="data:application/pdf;base64,{b64_pdf_pass}" download="Adiantamento_Normal.pdf" target="_blank"><button style="width:100%; padding:14px; font-size:15px; font-weight:bold; cursor:pointer; background-color:#d35400; color:white; border:none; border-radius:5px;">👥 PDF 2: ADIANT. NORMAL<br>(R$ {v_pass:.2f})</button></a>'
+                        st.markdown(href_pass, unsafe_allow_html=True)
+                    with c_pdf3:
+                        href_comp = f'<a href="data:application/pdf;base64,{b64_pdf_completo}" download="Adiantamento_Completo.pdf" target="_blank"><button style="width:100%; padding:14px; font-size:15px; font-weight:bold; cursor:pointer; background-color:#2e86c1; color:white; border:none; border-radius:5px;">📄 PDF UNIFICADO (AMBOS)<br>(R$ {v_final:.2f})</button></a>'
+                        st.markdown(href_comp, unsafe_allow_html=True)
+                elif tem_mot:
+                    b64_pdf_mot = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='motorista')
+                    href_mot = f'<a href="data:application/pdf;base64,{b64_pdf_mot}" download="Adiantamento_Motorista.pdf" target="_blank"><button style="width:100%; padding:15px; font-size:18px; font-weight:bold; cursor:pointer; background-color:#1e8449; color:white; border:none; border-radius:5px;">📥 BAIXAR RECIBO PDF MOTORISTA (R$ {v_mot:.2f})</button></a>'
+                    st.markdown(href_mot, unsafe_allow_html=True)
+                else:
+                    b64_pdf_pass = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='normal') if tem_pass else b64_pdf_completo
+                    href_pass = f'<a href="data:application/pdf;base64,{b64_pdf_pass}" download="Adiantamento_Normal.pdf" target="_blank"><button style="width:100%; padding:15px; font-size:18px; font-weight:bold; cursor:pointer; background-color:#2e86c1; color:white; border:none; border-radius:5px;">📥 BAIXAR RECIBO PDF OFICIAL (R$ {v_final:.2f})</button></a>'
+                    st.markdown(href_pass, unsafe_allow_html=True)
         else:
-            st.info("Sua Ficha Oficial reconstituída foi gerada abaixo:")
-            st.markdown(href, unsafe_allow_html=True)
+            st.info("Sua Ficha Oficial foi reconstituída abaixo. Selecione o PDF para download:")
+            if tem_mot and tem_pass:
+                b64_pdf_mot = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='motorista')
+                b64_pdf_pass = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='normal')
+
+                c_pdf1, c_pdf2, c_pdf3 = st.columns(3)
+                with c_pdf1:
+                    href_mot = f'<a href="data:application/pdf;base64,{b64_pdf_mot}" download="Adiantamento_Motorista.pdf" target="_blank"><button style="width:100%; padding:14px; font-size:15px; font-weight:bold; cursor:pointer; background-color:#1e8449; color:white; border:none; border-radius:5px;">🚚 PDF 1: MOTORISTA<br>(R$ {v_mot:.2f})</button></a>'
+                    st.markdown(href_mot, unsafe_allow_html=True)
+                with c_pdf2:
+                    href_pass = f'<a href="data:application/pdf;base64,{b64_pdf_pass}" download="Adiantamento_Normal.pdf" target="_blank"><button style="width:100%; padding:14px; font-size:15px; font-weight:bold; cursor:pointer; background-color:#d35400; color:white; border:none; border-radius:5px;">👥 PDF 2: ADIANT. NORMAL<br>(R$ {v_pass:.2f})</button></a>'
+                    st.markdown(href_pass, unsafe_allow_html=True)
+                with c_pdf3:
+                    href_comp = f'<a href="data:application/pdf;base64,{b64_pdf_completo}" download="Adiantamento_Completo.pdf" target="_blank"><button style="width:100%; padding:14px; font-size:15px; font-weight:bold; cursor:pointer; background-color:#2e86c1; color:white; border:none; border-radius:5px;">📄 PDF UNIFICADO (AMBOS)<br>(R$ {v_final:.2f})</button></a>'
+                    st.markdown(href_comp, unsafe_allow_html=True)
+            elif tem_mot:
+                b64_pdf_mot = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='motorista')
+                href_mot = f'<a href="data:application/pdf;base64,{b64_pdf_mot}" download="Adiantamento_Motorista.pdf" target="_blank"><button style="width:100%; padding:15px; font-size:18px; font-weight:bold; cursor:pointer; background-color:#1e8449; color:white; border:none; border-radius:5px;">📥 BAIXAR RECIBO PDF MOTORISTA (R$ {v_mot:.2f})</button></a>'
+                st.markdown(href_mot, unsafe_allow_html=True)
+            else:
+                b64_pdf_pass = criar_pdf_b64(dados_pedido, str_passageiros_cargos, tabela_itens, colunas_dias, tipo='normal') if tem_pass else b64_pdf_completo
+                href_pass = f'<a href="data:application/pdf;base64,{b64_pdf_pass}" download="Adiantamento_Normal.pdf" target="_blank"><button style="width:100%; padding:15px; font-size:18px; font-weight:bold; cursor:pointer; background-color:#2e86c1; color:white; border:none; border-radius:5px;">📥 BAIXAR RECIBO PDF OFICIAL (R$ {v_final:.2f})</button></a>'
+                st.markdown(href_pass, unsafe_allow_html=True)
             
     except Exception as e:
         st.error(f"Erro ao computar PDF nativo: {e}")
@@ -701,7 +804,7 @@ with tab1:
                 c_pass_cafe = True; c_pass_almoco = True; c_pass_jantar = True; c_pass_pernoite = False if is_ultimo else hospedagem
                 if is_primeiro:
                     if h_saida >= dtime(7, 0): c_pass_cafe = False
-                    if h_saida > dtime(16, 0): c_pass_almoco = False
+                    if h_saida >= dtime(14, 0): c_pass_almoco = False
                     if h_saida >= dtime(21, 0): c_pass_jantar = False
                 if is_ultimo:
                     if h_retorno <= dtime(7, 0): c_pass_cafe = False
@@ -797,13 +900,25 @@ with tab1:
 
         tabela_itens = tabela_mot + tabela_pass
         
+        v_mot_total = v_mot_cafes + v_mot_almocos + v_mot_jantas + v_mot_pernoites
+        v_pass_total = (v_pass_cafes + v_pass_almocos + v_pass_jantas + v_pass_pernoites + 
+                        combustivel + pedagio + estacionamento + valor_carro + valor_inesperado)
+
         lista_detalhada_pessoas = []
         lista_detalhada_pessoas.append(f"{solicitante} ({solic_cargo})")
-        
         for p in passageiros:
             lista_detalhada_pessoas.append(f"{p} ({cargo_map.get(p, 'PASSAGEIRO')})")
-            
         str_passageiros_cargos = " , ".join(lista_detalhada_pessoas)
+
+        str_mot_nome = f"{solicitante} ({solic_cargo})" if is_condutor_motorista else ""
+        lista_pass_apenas = [f"{p} ({cargo_map.get(p, 'PASSAGEIRO')})" for p in passageiros]
+        if not is_condutor_motorista:
+            lista_pass_apenas.insert(0, f"{solicitante} ({solic_cargo})")
+        str_pass_apenas = " , ".join(lista_pass_apenas) if lista_pass_apenas else "Nenhum acompanhante"
+
+        solic_normal = passageiros[0] if (is_condutor_motorista and passageiros) else solicitante
+        cargo_normal = cargo_map.get(solic_normal, solic_cargo)
+
         veiculo_final = placa_proprio.strip().upper() if (km_rodado > 0 and placa_proprio.strip() != "") else veiculo
 
         if "LEI MUNICIPAL Nº 5.262/2026" in fundamentos_usados and "LEI Nº 4.297/2018 E PORTARIA 303/2018" in fundamentos_usados:
@@ -820,6 +935,15 @@ with tab1:
             'Cargo_Solicitante': solic_cargo,
             'Setor_Solicitante': solic_setor,
             'Nomes_Passageiros': str_passageiros_cargos,
+            'Solicitante_Motorista': solicitante if is_condutor_motorista else "",
+            'Cargo_Motorista': solic_cargo if is_condutor_motorista else "",
+            'Solicitante_Normal': solic_normal,
+            'Cargo_Normal': cargo_normal,
+            'Nomes_Motorista': str_mot_nome,
+            'Nomes_Demais_Passageiros': str_pass_apenas,
+            'Qtd_Passageiros': len(lista_pass_apenas) if lista_pass_apenas else 1,
+            'Valor_Motorista': v_mot_total,
+            'Valor_Passageiros': v_pass_total,
             'Destino': destino,
             'Finalidade': finalidade,
             'Veiculo': veiculo_final,
